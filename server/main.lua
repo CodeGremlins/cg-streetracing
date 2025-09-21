@@ -1,11 +1,8 @@
-local Config = require 'config'
 local ESX = exports['es_extended']:getSharedObject()
 
---- Race storage
+--
 local Races = {}
--- Active players: raceId -> { [source] = {checkpoint = 0, lap = 1, finished = false, startTime = 0, finishTime = nil} }
 local RacePlayers = {}
--- Spectators: raceId -> { [source] = true }
 local RaceSpectators = {}
 local BestTimesCache = {}
 
@@ -76,7 +73,7 @@ local function buildPositions(raceId)
         local ck = (data.lap - 1) * (Races[raceId].total) + data.checkpoint -- overall progress across laps
         local cpTime = data.lastCheckpointTime or data.startTime
         if data.finished then
-            ck = 999999 -- put finished at top ordered by finishTime
+            ck = 999999
             cpTime = data.finishTime or cpTime
         end
         list[#list+1] = {
@@ -108,7 +105,6 @@ local function broadcastPositions(raceId)
     for _, entry in ipairs(posList) do
         TriggerClientEvent('cg-streetracing:client:updatePositions', entry.source, posList)
     end
-    -- spectators also receive updates
     if RaceSpectators[raceId] then
         for src,_ in pairs(RaceSpectators[raceId]) do
             TriggerClientEvent('cg-streetracing:client:updatePositions', src, posList)
@@ -120,7 +116,6 @@ local function endRace(raceId)
     local players = RacePlayers[raceId]
     if not players then return end
     local ordered = buildPositions(raceId)
-    -- Build summary with placements & DNF
     local summary = {}
     local race = Races[raceId]
     for place, entry in ipairs(ordered) do
@@ -133,7 +128,6 @@ local function endRace(raceId)
             time = totalTime
         }
     end
-    -- Include DNFs (players not finished when race forced to end)
     for src, pdata in pairs(players) do
         if not pdata.finished then
             summary[#summary+1] = { place = #summary+1, name = pdata.name or ('Player '..src), finished = false, time = nil, dnf = true }
@@ -143,7 +137,6 @@ local function endRace(raceId)
         local src = entry.source
         local pdata = players[src]
         if pdata and pdata.finished and place == 1 then
-            -- payout winner only for now
             local xPlayer = ESX.GetPlayerFromId(src)
             if xPlayer then
                 local race = Races[raceId]
@@ -152,7 +145,6 @@ local function endRace(raceId)
         end
         TriggerClientEvent('cg-streetracing:client:raceEnded', src, ordered, summary)
     end
-    -- send summary to spectators too
     if RaceSpectators[raceId] then
         for src,_ in pairs(RaceSpectators[raceId]) do
             TriggerClientEvent('cg-streetracing:client:raceEnded', src, ordered, summary)
@@ -173,11 +165,11 @@ local function scheduleDNF(raceId)
     end)
 end
 
-RegisterNetEvent('cg-streetracing:server:createRace', function(raceKey)
-    local src = source
+ESX.RegisterServerCallback('cg-streetracing:createRace', function(src, cb, raceKey)
     local raceCfg = Config.Races[raceKey]
     if not raceCfg then
-        return TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race not found'})
+        TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race not found'})
+        return cb(false, 'race_not_found')
     end
     local raceId = ('%s-%d'):format(raceKey, os.time())
     Races[raceId] = {
@@ -195,16 +187,18 @@ RegisterNetEvent('cg-streetracing:server:createRace', function(raceKey)
     RaceSpectators[raceId] = {}
     TriggerClientEvent('cg-streetracing:client:raceCreated', src, raceId, Races[raceId])
     debug(('Race created %s by %d'):format(raceId, src))
+    cb(true, raceId, Races[raceId])
 end)
 
-RegisterNetEvent('cg-streetracing:server:joinRace', function(raceId)
-    local src = source
+ESX.RegisterServerCallback('cg-streetracing:joinRace', function(src, cb, raceId)
     local race = Races[raceId]
     if not race then
-        return TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race does not exist'})
+        TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race does not exist'})
+        return cb(false, 'no_race')
     end
     if race.started then
-        return TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race already started'})
+        TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race already started'})
+        return cb(false, 'started')
     end
     local xPlayer = ESX.GetPlayerFromId(src)
     local name = xPlayer and (xPlayer.getName and xPlayer:getName() or xPlayer.name) or ('Player '..src)
@@ -218,19 +212,20 @@ RegisterNetEvent('cg-streetracing:server:joinRace', function(raceId)
     }
     TriggerClientEvent('cg-streetracing:client:joinedRace', src, raceId, race)
     debug(('Player %d joined race %s'):format(src, raceId))
+    cb(true, raceId, race)
 end)
 
-RegisterNetEvent('cg-streetracing:server:startRace', function(raceId)
-    local src = source
+ESX.RegisterServerCallback('cg-streetracing:startRace', function(src, cb, raceId)
     local race = Races[raceId]
-    if not race then return end
-    if race.createdBy ~= src then return end
-    if race.started then return end
+    if not race then return cb(false, 'no_race') end
+    if race.createdBy ~= src then return cb(false, 'not_creator') end
+    if race.started then return cb(false, 'already_started') end
     local players = RacePlayers[raceId]
     local count = 0
     for _ in pairs(players) do count = count + 1 end
     if count < Config.MinPlayersToStart then
-        return TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Not enough players'})
+        TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Not enough players'})
+        return cb(false, 'not_enough')
     end
     race.started = true
     race.startTime = os.clock() * 1000
@@ -239,6 +234,7 @@ RegisterNetEvent('cg-streetracing:server:startRace', function(raceId)
         TriggerClientEvent('cg-streetracing:client:raceStarted', playerSrc, raceId, race.startTime)
     end
     debug(('Race %s started with %d players'):format(raceId, count))
+    cb(true, raceId)
 end)
 
 RegisterNetEvent('cg-streetracing:server:checkpoint', function(raceId, checkpointIndex, playerCoords)
@@ -250,7 +246,6 @@ RegisterNetEvent('cg-streetracing:server:checkpoint', function(raceId, checkpoin
     if Config.StrictOrder and checkpointIndex ~= pdata.checkpoint + 1 then
         return -- invalid sequence / possible exploit
     end
-    -- Distance validation (anti-exploit)
     if playerCoords and Config.CheckpointMaxDistance then
         local nextCkPos = race.checkpoints[checkpointIndex]
         if nextCkPos then
@@ -268,7 +263,6 @@ RegisterNetEvent('cg-streetracing:server:checkpoint', function(raceId, checkpoin
     pdata.lastCheckpointTime = os.clock() * 1000
 
     if pdata.checkpoint >= race.total then
-        -- Lap or finish
         if pdata.lap < race.laps then
             pdata.lap = pdata.lap + 1
             pdata.checkpoint = 0 -- reset for next lap
@@ -279,14 +273,12 @@ RegisterNetEvent('cg-streetracing:server:checkpoint', function(raceId, checkpoin
             scheduleDNF(raceId)
             debug(('Player %d finished race %s'):format(src, raceId))
             TriggerClientEvent('cg-streetracing:client:finished', src, raceId, pdata.finishTime)
-            -- persistence best time
             local xPlayer = ESX.GetPlayerFromId(src)
             local identifier = xPlayer and (xPlayer.getIdentifier and xPlayer:getIdentifier() or xPlayer.identifier) or ('steam:'..src)
             local newBest = saveBestTime(race.key, identifier, pdata.name or ('Player '..src), pdata.finishTime - race.startTime)
             if newBest then
                 TriggerClientEvent('ox_lib:notify', src, {type='success', title='Street Race', description='New best time: '..formatTime(newBest)})
             end
-            -- check if everyone finished or only one left
             local still = 0
             for _, d in pairs(RacePlayers[raceId]) do
                 if not d.finished then still = still + 1 end
@@ -315,20 +307,52 @@ AddEventHandler('playerDropped', function()
     end
 end)
 
--- Spectate existing race (late join viewing only)
-RegisterNetEvent('cg-streetracing:server:spectateRace', function(raceId)
-    local src = source
+ESX.RegisterServerCallback('cg-streetracing:leaveRace', function(src, cb, raceId)
+    local src = src
+    local rId = raceId
+    if not rId then
+        -- attempt find race containing player
+        for id, players in pairs(RacePlayers) do
+            if players[src] then rId = id break end
+        end
+        if not rId then
+            for id, specs in pairs(RaceSpectators) do
+                if specs[src] then rId = id break end
+            end
+        end
+    end
+    if not rId then return cb(false, 'not_in_race') end
+    local removed = false
+    if RacePlayers[rId] and RacePlayers[rId][src] then
+        RacePlayers[rId][src] = nil
+        removed = true
+    end
+    if RaceSpectators[rId] and RaceSpectators[rId][src] then
+        RaceSpectators[rId][src] = nil
+        removed = true
+    end
+    if removed then
+        TriggerClientEvent('cg-streetracing:client:forceHide', src)
+        broadcastPositions(rId)
+        debug(('Player %d left race %s'):format(src, rId))
+        return cb(true, rId)
+    end
+    cb(false, 'nothing_to_leave')
+end)
+
+ESX.RegisterServerCallback('cg-streetracing:spectateRace', function(src, cb, raceId)
     if not Config.AllowLateSpectate then return end
     local race = Races[raceId]
     if not race or not race.started then
-        return TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race not active'})
+        TriggerClientEvent('ox_lib:notify', src, {type='error', title='Street Race', description='Race not active'})
+        return cb(false, 'inactive')
     end
     RaceSpectators[raceId][src] = true
     TriggerClientEvent('cg-streetracing:client:spectating', src, raceId, {label = race.label, laps = race.laps, total = race.total})
     -- push immediate positions
     local posList = buildPositions(raceId)
     TriggerClientEvent('cg-streetracing:client:updatePositions', src, posList)
+    cb(true, raceId)
 end)
 
--- Export for debug listing
 exports('ListRaces', function() return Races end)

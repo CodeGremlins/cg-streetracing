@@ -1,47 +1,31 @@
 Config = {}
-
--- General settings
 Config.Debug = true
 Config.CountdownSeconds = 5
 Config.MinPlayersToStart = 1
-Config.AutoDNFTimeSeconds = 90 -- Time after winner finish to DNF others
-
--- Anti-exploit checkpoint validation
--- Server will only accept a checkpoint update if player is within this distance (meters)
+Config.AutoDNFTimeSeconds = 90
 Config.CheckpointMaxDistance = 25.0
--- If true, server will reject skipping ahead more than 1 checkpoint (already enforced logically)
 Config.StrictOrder = true
--- Optionally require vehicle (false allows on foot testing)
 Config.RequireVehicle = true
--- Allow players to spectate a race after start
 Config.AllowLateSpectate = true
-
--- Marker / blip settings
 Config.CheckpointMarker = {
-	type = 1, -- marker type
+	type = 1,
 	scale = vector3(3.0, 3.0, 1.5),
 	color = { r = 255, g = 120, b = 0, a = 160 }
 }
-
 Config.CheckpointBlip = {
 	sprite = 1,
 	colour = 47,
 	scale = 0.8
 }
-
--- ox_target zone to open race menu (placeholder position)
 Config.RaceTerminal = {
 	coords = vec3(-75.15, -819.24, 326.18),
 	size = vec3(1.5, 1.5, 1.5),
 	debug = false
 }
-
--- Sample races definition
--- Each checkpoint: { x, y, z }
 Config.Races = {
 	test_loop = {
 		label = 'Downtown Test Loop',
-			laps = 2, -- Demonstrate multi-lap (set to 1 for single lap)
+		laps = 2,
 		payout = 2500,
 		checkpoints = {
 			vec3(-256.69, -979.60, 31.22),
@@ -54,6 +38,5 @@ Config.Races = {
 		}
 	}
 }
-
 return Config
 

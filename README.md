@@ -38,11 +38,13 @@ Ensure these resources start **before** this resource:
 - `/joinrace <raceId>` – join before it starts.
 - `/startrace <raceId>` – only creator can start; checks min players.
 - `/spectaterace <raceId>` – spectate an active race (no participation).
+ - `/leaverace` – leave current race or spectate session and hide UI.
+ - `/hideraceui` – manually hide race & summary UI (does not leave race).
 
 ## UI
 Shows automatically when you join a race. Closes on race end.
 Displays: timer, lap progress, top 3, your placement. Names pulled from ESX player object.
-After race end a summary pop-up lists placements, finish times (formatted), and DNFs (dimmed). Close with ESC or Backspace.
+After race end a summary pop-up lists placements, finish times (formatted), and DNFs (dimmed). Auto-hides after 15s or close early with ESC / Backspace.
 
 ## Adding New Race
 In `config.lua` add another entry under `Config.Races`:

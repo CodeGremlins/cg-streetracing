@@ -7,6 +7,7 @@ const youPos = document.getElementById('youPos');
 const lapInfo = document.getElementById('lapInfo');
 const summaryPanel = document.getElementById('summaryPanel');
 const summaryList = document.getElementById('summaryList');
+let summaryAutoClose;
 
 function formatTime(ms) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -33,7 +34,6 @@ window.addEventListener('message', (e) => {
     case 'positions': {
       const list = data.list || [];
       const me = data.me;
-      // list already ordered by server (finish or progress)
       p1.textContent = `1. ${list[0] ? (list[0].name || list[0].source) : '---'}`;
       p2.textContent = `2. ${list[1] ? (list[1].name || list[1].source) : '---'}`;
       p3.textContent = `3. ${list[2] ? (list[2].name || list[2].source) : '---'}`;
@@ -50,7 +50,6 @@ window.addEventListener('message', (e) => {
       break;
     }
     case 'finished':
-      // Could add visual effect
       break;
     case 'summary': {
       const rows = data.data || [];
@@ -72,8 +71,16 @@ window.addEventListener('message', (e) => {
         });
       }
       summaryPanel.classList.remove('hidden');
+        if (summaryAutoClose) clearTimeout(summaryAutoClose);
+        summaryAutoClose = setTimeout(() => {
+          summaryPanel.classList.add('hidden');
+        }, 15000); // auto hide after 15s
       break;
     }
+      case 'hideAll':
+        raceContainer.classList.add('hidden');
+        summaryPanel.classList.add('hidden');
+        break;
   }
 });
 

@@ -1,4 +1,3 @@
-local Config = require 'config'
 local currentRace, raceData
 local isSpectator = false
 local checkpoints = {}
@@ -51,7 +50,6 @@ local function timeNowMs()
     return GetGameTimer()
 end
 
--- NUI UI helpers
 local function openUI()
     if showUI then return end
     showUI = true
@@ -62,6 +60,16 @@ local function closeUI()
     if not showUI then return end
     showUI = false
     SendNUIMessage({action='hide'})
+end
+
+local function resetState()
+    clearCheckpoints()
+    currentRace = nil
+    raceData = nil
+    isSpectator = false
+    finished = false
+    currentCheckpointIndex = 0
+    currentLap = 1
 end
 
 local function updateTimeLoop()
@@ -115,15 +123,11 @@ end)
 RegisterNetEvent('cg-streetracing:client:raceEnded', function(raceId, ordered, summary)
     if currentRace ~= raceId then return end
     lib.notify({title='Street Race', description='Race ended', type='inform'})
-    -- push summary to NUI
     if summary then
         SendNUIMessage({action='summary', data = summary})
     end
     closeUI()
-    clearCheckpoints()
-    currentRace = nil
-    raceData = nil
-    isSpectator = false
+    resetState()
 end)
 
 RegisterNetEvent('cg-streetracing:client:updatePositions', function(list)
@@ -131,7 +135,6 @@ RegisterNetEvent('cg-streetracing:client:updatePositions', function(list)
     SendNUIMessage({action='positions', list = list, me = GetPlayerServerId(PlayerId())})
 end)
 
--- Thread to check for entering checkpoint
 CreateThread(function()
     while true do
     if currentRace and raceData and raceData.started and not finished and not isSpectator then
@@ -146,7 +149,6 @@ CreateThread(function()
                     currentCheckpointIndex = nextIndex
                     TriggerServerEvent('cg-streetracing:server:checkpoint', currentRace, currentCheckpointIndex, {x=pcoords.x, y=pcoords.y, z=pcoords.z})
                     if currentCheckpointIndex >= raceData.total then
-                        -- if multi-lap, reset index on client (server authoritative though)
                         if raceData.laps and raceData.laps > currentLap then
                             currentLap = currentLap + 1
                             currentCheckpointIndex = 0
@@ -160,10 +162,15 @@ CreateThread(function()
     end
 end)
 
--- Commands (temporary)
 RegisterCommand('createrace', function(_, args)
     local key = args[1] or 'test_loop'
-    TriggerServerEvent('cg-streetracing:server:createRace', key)
+    ESX.TriggerServerCallback('cg-streetracing:createRace', function(success, raceId, dataOrReason)
+        if not success then
+            lib.notify({title='Street Race', description='Create failed: '..tostring(dataOrReason), type='error'})
+        else
+            debug('CreateRace callback ok '..raceId)
+        end
+    end, key)
 end)
 RegisterCommand('joinrace', function(_, args)
     local raceId = args[1]
@@ -171,7 +178,11 @@ RegisterCommand('joinrace', function(_, args)
         lib.notify({title='Street Race', description='Usage: /joinrace <id>', type='error'})
         return
     end
-    TriggerServerEvent('cg-streetracing:server:joinRace', raceId)
+    ESX.TriggerServerCallback('cg-streetracing:joinRace', function(success, rid, raceOrReason)
+        if not success then
+            lib.notify({title='Street Race', description='Join failed: '..tostring(raceOrReason), type='error'})
+        end
+    end, raceId)
 end)
 RegisterCommand('startrace', function(_, args)
     local raceId = args[1]
@@ -179,7 +190,11 @@ RegisterCommand('startrace', function(_, args)
         lib.notify({title='Street Race', description='Usage: /startrace <id>', type='error'})
         return
     end
-    TriggerServerEvent('cg-streetracing:server:startRace', raceId)
+    ESX.TriggerServerCallback('cg-streetracing:startRace', function(success, ridOrReason)
+        if not success then
+            lib.notify({title='Street Race', description='Start failed: '..tostring(ridOrReason), type='error'})
+        end
+    end, raceId)
 end)
 
 RegisterCommand('spectaterace', function(_, args)
@@ -188,10 +203,39 @@ RegisterCommand('spectaterace', function(_, args)
         lib.notify({title='Street Race', description='Usage: /spectaterace <id>', type='error'})
         return
     end
-    TriggerServerEvent('cg-streetracing:server:spectateRace', raceId)
+    ESX.TriggerServerCallback('cg-streetracing:spectateRace', function(success, ridOrReason)
+        if not success then
+            lib.notify({title='Street Race', description='Spectate failed: '..tostring(ridOrReason), type='error'})
+        end
+    end, raceId)
 end)
 
--- ox_target zone placeholder
+RegisterCommand('leaverace', function()
+    if not currentRace then
+        lib.notify({title='Street Race', description='No active race / spectate', type='error'})
+        return
+    end
+    ESX.TriggerServerCallback('cg-streetracing:leaveRace', function(success, ridOrReason)
+        if not success then
+            lib.notify({title='Street Race', description='Leave failed: '..tostring(ridOrReason), type='error'})
+        end
+    end, currentRace)
+    SendNUIMessage({action='hideAll'})
+    closeUI()
+    resetState()
+end)
+
+RegisterCommand('hideraceui', function()
+    SendNUIMessage({action='hideAll'})
+    closeUI()
+end)
+
+RegisterNetEvent('cg-streetracing:client:forceHide', function()
+    SendNUIMessage({action='hideAll'})
+    closeUI()
+    resetState()
+end)
+
 CreateThread(function()
     local zone = Config.RaceTerminal
     exports.ox_target:addBoxZone({

@@ -1,6 +1,3 @@
--- Placeholder for extended UI logic if needed later
--- Currently main UI interactions handled in main.lua
-
 local M = {}
 
 function M.FormatTime(ms)

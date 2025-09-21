@@ -9,7 +9,7 @@ version '0.1.0'
 lua54 'yes'
 
 shared_scripts {
-	'@es_extended/imports.lua', -- ESX legacy import helper
+	'@es_extended/imports.lua',
 	'@ox_lib/init.lua',
 	'config.lua'
 }
@@ -20,7 +20,7 @@ client_scripts {
 }
 
 server_scripts {
-	'@oxmysql/lib/MySQL.lua', -- Optional if later persistence wanted
+	'@oxmysql/lib/MySQL.lua',
 	'server/main.lua'
 }
 
